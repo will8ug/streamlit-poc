@@ -7,6 +7,19 @@ from langchain.chat_models import init_chat_model
 
 load_dotenv()
 
+@st.cache_resource
+def get_agent():
+    model = init_chat_model(
+        model="qwen3.6-flash",
+        api_key=os.getenv("DASHSCOPE_API_KEY"),
+        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        model_provider="openai",
+    )
+    return create_agent(model=model)
+
+
+agent = get_agent()
+
 st.write("Let's chat!")
 
 if "messages" not in st.session_state:
@@ -33,14 +46,7 @@ if query := st.chat_input("Input your query"):
         message_placeholder = st.empty()
         full_response = ""
 
-        model = init_chat_model(
-            model="qwen3.6-flash",
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            model_provider="openai"
-        )
-        client = create_agent(model)
-        for chunk, _ in client.stream(
+        for chunk, _ in agent.stream(
             {"messages": st.session_state["messages"]},
             stream_mode="messages"
         ):
