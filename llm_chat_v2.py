@@ -9,12 +9,13 @@ from langchain_core.messages import HumanMessage, AIMessage
 load_dotenv()
 
 @st.cache_resource
-def get_agent(model: str = "qwen3.6-flash"):
+def get_agent(model: str, api_key: str, temperature: float):
     llm = init_chat_model(
         model=model,
-        api_key=os.getenv("DASHSCOPE_API_KEY"),
+        api_key=api_key or os.getenv("DASHSCOPE_API_KEY"),
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         model_provider="openai",
+        temperature=temperature,
     )
     return create_agent(model=llm)
 
@@ -39,7 +40,9 @@ def init_ui():
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-init_ui()
+    return api_key, model_name, temp
+
+api_key, model_name, temp = init_ui()
 
 for msg in st.session_state.messages:
     msg_type = getattr(msg, "type", None)
@@ -52,7 +55,7 @@ if prompt := st.chat_input("Type your message..."):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    agent = get_agent()
+    agent = get_agent(model=model_name, api_key=api_key, temperature=temp)
 
     # Stream the agent response token by token
     with st.chat_message("assistant"):
