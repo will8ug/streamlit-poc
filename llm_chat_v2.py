@@ -1,12 +1,19 @@
 import os
+import uuid
 
 import streamlit as st
 from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, BaseMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import MemorySaver
 
 load_dotenv()
+
+@st.cache_resource
+def get_checkpointer():
+    return MemorySaver()
 
 @st.cache_resource
 def get_agent(model: str, api_key: str, temperature: float):
@@ -17,7 +24,7 @@ def get_agent(model: str, api_key: str, temperature: float):
         model_provider="openai",
         temperature=temperature,
     )
-    return create_agent(model=llm)
+    return create_agent(model=llm, checkpointer=get_checkpointer())
 
 def init_ui():
     st.set_page_config(page_title="🤖 LangChain + Streamlit", layout="wide")
@@ -34,37 +41,38 @@ def init_ui():
         temp = st.slider("Temperature", 0.0, 1.0, 0.7)
 
         if st.button("🗑️ Clear History"):
-            st.session_state.messages = []
+            st.session_state.thread_id = str(uuid.uuid4())
             st.rerun()
 
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    if "thread_id" not in st.session_state:
+        st.session_state.thread_id = str(uuid.uuid4())
 
     return api_key, model_name, temp
 
-api_key, model_name, temp = init_ui()
+def render_chat_history(messages: list[BaseMessage]):
+    for msg in messages:
+        role = "user" if msg.type == "human" else "assistant"
+        with st.chat_message(role):
+            st.markdown(msg.content)
 
-for msg in st.session_state.messages:
-    msg_type = getattr(msg, "type", None)
-    role = "user" if msg_type == "human" else "assistant"
-    with st.chat_message(role):
-        st.markdown(msg.content)
+api_key, model_name, temp = init_ui()
+config: RunnableConfig = {"configurable": {"thread_id": st.session_state.thread_id}}
+agent = get_agent(model=model_name, api_key=api_key, temperature=temp)
+
+render_chat_history(agent.get_state(config).values.get("messages", []))
 
 if prompt := st.chat_input("Type your message..."):
-    st.session_state.messages.append(HumanMessage(content=prompt))
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    agent = get_agent(model=model_name, api_key=api_key, temperature=temp)
-
-    # Stream the agent response token by token
     with st.chat_message("assistant"):
         response_box = st.empty()
         full_response = ""
 
         try:
             for chunk, _ in agent.stream(
-                {"messages": st.session_state.messages},
+                {"messages": [HumanMessage(content=prompt)]},
+                config=config,
                 stream_mode="messages",
             ):
                 if chunk.content:
@@ -72,7 +80,6 @@ if prompt := st.chat_input("Type your message..."):
                     response_box.markdown(full_response)
 
             response_box.markdown(full_response)
-            st.session_state.messages.append(AIMessage(content=full_response))
 
         except Exception as e:
             st.error(f"❌ Error: {e}")
